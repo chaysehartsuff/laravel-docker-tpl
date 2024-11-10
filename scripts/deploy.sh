@@ -4,6 +4,11 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/../" || exit
 
+# Load environment variables from .env
+set -a
+source .env
+set +a
+
 # Default action: Bring up Docker Compose in detached mode
 docker compose up -d
 
@@ -45,3 +50,12 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+# Connect the application container to the specified external network
+if [ -n "$EXTERNAL_NETWORK" ] && [ -n "$APP_CONTAINER_NAME" ]; then
+  echo "Connecting $APP_CONTAINER_NAME to $EXTERNAL_NETWORK..."
+  docker network connect "$EXTERNAL_NETWORK" "$APP_CONTAINER_NAME"
+else
+  echo "Error: EXTERNAL_NETWORK or APP_CONTAINER_NAME is not set in .env"
+  exit 1
+fi

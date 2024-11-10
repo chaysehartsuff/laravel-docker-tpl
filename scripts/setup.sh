@@ -56,8 +56,30 @@ for VAR in "${DB_VARS[@]}"; do
   fi
 done
 
-# Run "php artisan migrate:fresh" in the src container at /var/www/html
-docker compose exec -it src bash -c "cd /var/www/html && php artisan migrate:fresh"
+# Read MYSQL_ATTEMPTS from ../.env or default to 5 if not set
+MYSQL_ATTEMPTS=$(grep "^MYSQL_ATTEMPTS=" "$SCRIPT_DIR/../.env" | cut -d '=' -f2-)
+MYSQL_ATTEMPTS=${MYSQL_ATTEMPTS:-5}
+
+# Wait for MySQL service to be ready
+attempt=1
+while [ $attempt -le "$MYSQL_ATTEMPTS" ]; do
+  echo "Checking MySQL status (Attempt $attempt/$MYSQL_ATTEMPTS)..."
+  if docker compose exec mysql mysqladmin ping -h"mysql" --silent; then
+    echo "MySQL is up and running!"
+    # Run "php artisan migrate:fresh" in the src container at /var/www/html
+    docker compose exec -it src bash -c "cd /var/www/html && php artisan migrate:fresh"
+    break
+  else
+    echo "MySQL is not ready. Retrying in 5 seconds..."
+    sleep 5
+  fi
+  attempt=$((attempt+1))
+done
+
+# If MySQL was never ready, log a warning and skip migration
+if [ $attempt -gt "$MYSQL_ATTEMPTS" ]; then
+  echo "Warning: MySQL service was not ready after $MYSQL_ATTEMPTS attempts. Skipping 'php artisan migrate:fresh' step."
+fi
 
 # Take down the Docker containers
 docker compose down

@@ -3,16 +3,18 @@
 # Ensure the script works relative to its location
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Check if the src directory exists
+# Define the src directory path
 SRC_DIR="$SCRIPT_DIR/../src"
-if [ -d "$SRC_DIR" ]; then
-  # Check if the src directory contains any files or directories
-  if [ "$(ls -A "$SRC_DIR")" ]; then
-    echo "Error: The src directory already exists and is not empty. Please empty or remove it before running this script."
-    exit 1
-  fi
-else
-  echo "Error: The src directory does not exist. Please create it before running this script."
+
+# Check if the src directory exists; if not, create it
+if [ ! -d "$SRC_DIR" ]; then
+  echo "The src directory does not exist. Creating it..."
+  mkdir -p "$SRC_DIR"
+fi
+
+# Check if the src directory contains any files or directories
+if [ "$(ls -A "$SRC_DIR")" ]; then
+  echo "Error: The src directory already exists and is not empty. Please empty or remove it before running this script."
   exit 1
 fi
 

@@ -1,61 +1,109 @@
 #!/bin/bash
+source "/home/charts/projects/laravel-docker/scripts/tpl/tpl.sh"
 
-# Ensure the script works relative to its location
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR/../" || exit
+# Parameter definitions
+declare -A PARAMETERS=(
 
-# Load environment variables from .env
-set -a
-source .env
-set +a
+)
+declare -A PARAMETER_DESCRIPTIONS=(
 
-# Default action: Bring up Docker Compose in detached mode
-docker compose up -d
+)
+PARAMETER_ORDER=()
 
-# Parse flags for additional deployment actions
-for arg in "$@"; do
-  case $arg in
-    --build)
-      echo "Building Docker images..."
-      docker compose build
-      ;;
-    --build-no-cache)
-      echo "Building Docker images without cache..."
-      docker compose build --no-cache
-      ;;
-    --pull)
-      echo "Pulling the latest images..."
-      docker compose pull
-      ;;
-    --up)
-      echo "Starting Docker Compose in detached mode..."
-      docker compose up -d
-      ;;
-    --up-recreate)
-      echo "Starting Docker Compose with forced container recreation..."
-      docker compose up -d --force-recreate
-      ;;
-    --up-build)
-      echo "Building and starting Docker Compose..."
-      docker compose up -d --build
-      ;;
-    --logs)
-      echo "Tailing logs for Docker Compose services..."
-      docker compose logs -f
-      ;;
-    *)
-      echo "Unknown option: $arg"
-      echo "Usage: $0 [--build] [--build-no-cache] [--pull] [--up] [--up-recreate] [--up-build] [--logs]"
-      exit 1
-      ;;
-  esac
-done
+# Flag definitions
+declare -A FLAGS=(
+    ["help"]="show_help"
+    ["h"]="show_help"
+    ["restart"]=
+    ["r"]=
+)
+declare -A FLAG_DESCRIPTIONS=(
+    ["help,h"]="Displays all available parameters and flags"
+    ["restart,r"]="Restarts containers"laravel-docker/scripts/deploy.sh
+)
 
-# Connect the application container to the specified external network
-if [ -n "$EXTERNAL_NETWORK" ] && [ -n "$APP_CONTAINER_NAME" ]; then
-  echo "Connecting $APP_CONTAINER_NAME to $EXTERNAL_NETWORK..."
-  docker network connect "$EXTERNAL_NETWORK" "$APP_CONTAINER_NAME"
-else
-  echo "Error: EXTERNAL_NETWORK or APP_CONTAINER_NAME is not set in .env"
-  exit 1
-fi
+# Protection functions
+declare -A PROTECTION=(
+    ["assign_command"]="DOCKER_CMD,docker compose,docker-compose"
+    ["source_file"]="../.env"
+    ["check_command"]="docker"
+)
+
+# Command description
+description="Deploys and connects service to server container."
+
+function run {
+
+    cd $SCRIPT_DIR/../
+    APP_PATH="/var/www/html"
+    echo "Current working directory: $(pwd)"
+
+    $DOCKER_CMD up -d
+
+    echo "Connecting containers to server network..."
+    connect_to_network $APP_CONTAINER_NAME $EXTERNAL_NETWORK 
+    # build manifest.json
+    docker_exec "$APP_CONTAINER_NAME" "npm install" $APP_PATH
+    docker_exec "$APP_CONTAINER_NAME" "npm run build" $APP_PATH
+}
+
+function restart {
+    cd $SCRIPT_DIR/../
+
+    $DOCKER_CMD restart
+
+    echo "Connecting containers to server network..."
+    connect_to_network $APP_CONTAINER_NAME $EXTERNAL_NETWORK 
+    # build manifest.json
+    docker_exec "$APP_CONTAINER_NAME" "npm install" $APP_PATH
+    docker_exec "$APP_CONTAINER_NAME" "npm run build" $APP_PATH
+}
+
+function docker_exec {
+    local container_name="$1"
+    local command="$2"
+    local exec_path="$3"
+
+    # Check if the container name is provided
+    if [[ -z "$container_name" ]]; then
+        color "red" "Error: Docker container name is required."
+        return 1
+    fi
+
+    # Check if the command is provided
+    if [[ -z "$command" ]]; then
+        color "red" "Error: Command to execute is required."
+        return 1
+    fi
+
+    # Default exec_path to root ("/") if not specified
+    exec_path="${exec_path:-/}"
+
+    # Execute the command using docker exec
+    docker exec -it "$container_name" sh -c "cd $exec_path && $command"
+
+    # Capture the result and provide feedback
+    if [[ $? -ne 0 ]]; then
+        color "red" "Error: Command execution failed in container '$container_name'."
+        return 1
+    else
+        color "green" "Success: Command executed in container '$container_name'."
+        return 0
+    fi
+}
+
+function connect_to_network {
+    local container_name="$1"
+    local network_name="$2"
+
+    # Check if the container is already connected to the network
+    if docker network inspect "$network_name" | grep -q "\"Name\": \"$container_name\""; then
+        color "yellow" "Container '$container_name' is already connected to network '$network_name'. Skipping."
+    else
+        color "green" "Connecting container '$container_name' to network '$network_name'..."
+        docker network connect "$network_name" "$container_name"
+    fi
+}
+
+
+main "$@"

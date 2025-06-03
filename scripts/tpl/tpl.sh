@@ -276,20 +276,6 @@ function main {
         fi
     done
 
-    # Process flags
-    for flag in "${FLAGS_FOUND[@]}"; do
-        if [[ -v FLAGS[$flag] ]]; then
-            # If the flag exists in FLAGS and has an associated function, call it
-            if [[ -n "${FLAGS[$flag]}" ]]; then
-                "${FLAGS[$flag]}"
-            fi
-        else
-            color "red" "Error: Unsupported flag " -n
-            color "yellow" "--$flag"
-            exit 1
-        fi
-    done
-
     # Match parameters with values in the order defined in PARAMETERS
     for param_name in "${PARAMETER_ORDER[@]}"; do
         local param_value="${PARAMS[$param_index]:-}"
@@ -312,6 +298,20 @@ function main {
             fi
         else
             echo "Error: Protection function '$key' not found."
+            exit 1
+        fi
+    done
+
+    # Process flags
+    for flag in "${FLAGS_FOUND[@]}"; do
+        if [[ -v FLAGS[$flag] ]]; then
+            # If the flag exists in FLAGS and has an associated function, call it
+            if [[ -n "${FLAGS[$flag]}" ]]; then
+                "${FLAGS[$flag]}"
+            fi
+        else
+            color "red" "Error: Unsupported flag " -n
+            color "yellow" "--$flag"
             exit 1
         fi
     done

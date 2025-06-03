@@ -10,6 +10,7 @@ SRC_DIR="$SCRIPT_DIR/../src"
 if [ ! -d "$SRC_DIR" ]; then
   echo "The src directory does not exist. Creating it..."
   mkdir -p "$SRC_DIR"
+  chmod -R 777 "$SRC_DIR"
 fi
 
 # Check if the src directory contains any files or directories

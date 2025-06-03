@@ -1,5 +1,5 @@
 #!/bin/bash
-source "/home/charts/projects/laravel-docker/scripts/tpl/tpl.sh"
+source "/root/projects/laravel-docker/scripts/tpl/tpl.sh"
 
 declare -A PARAMETERS=(
 

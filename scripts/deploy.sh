@@ -1,5 +1,5 @@
 #!/bin/bash
-source "/home/charts/projects/laravel-docker/scripts/tpl/tpl.sh"
+source "/root/projects/laravel-docker/scripts/tpl/tpl.sh"
 
 # Parameter definitions
 declare -A PARAMETERS=(
@@ -16,10 +16,18 @@ declare -A FLAGS=(
     ["h"]="show_help"
     ["restart"]=
     ["r"]=
+    ["migrate"]="migrate"
+    ["rebuild"]="rebuild_assets"
+    ["watch"]="watch_assets"
+    ["seed"]="seed"
 )
 declare -A FLAG_DESCRIPTIONS=(
     ["help,h"]="Displays all available parameters and flags"
-    ["restart,r"]="Restarts containers"laravel-docker/scripts/deploy.sh
+    ["restart,r"]="Restarts containers"
+    ["migrate"]="Runs Laravel migrations (must be deployed already)"
+    ["rebuild"]="Recompiles and rebuilds js/css"
+    ["watch"]="Watches for changes in js/css and rebuilds automatically"
+    ["seed"]=Seeds necessary starter information for application
 )
 
 # Protection functions
@@ -38,25 +46,105 @@ function run {
     APP_PATH="/var/www/html"
     echo "Current working directory: $(pwd)"
 
+    # Start Docker containers
     $DOCKER_CMD up -d
 
+    echo "Waiting for container '$APP_CONTAINER_NAME' to be running..."
+    for i in {1..10}; do
+        STATUS=$(docker inspect -f '{{.State.Running}}' "$APP_CONTAINER_NAME" 2>/dev/null)
+        if [ "$STATUS" == "true" ]; then
+            echo "Container is running."
+            break
+        fi
+        echo "Still waiting... ($i/10)"
+        sleep 1
+    done
+
+    # If still not running, bail early
+    if [ "$STATUS" != "true" ]; then
+        echo "❌ Container '$APP_CONTAINER_NAME' failed to start."
+        exit 1
+    fi
+
     echo "Connecting containers to server network..."
-    connect_to_network $APP_CONTAINER_NAME $EXTERNAL_NETWORK 
-    # build manifest.json
+    connect_to_network $APP_CONTAINER_NAME $EXTERNAL_NETWORK
+
+    # Install npm dependencies and build assets
+    echo "Installing and building npm dependencies..."
     docker_exec "$APP_CONTAINER_NAME" "npm install" $APP_PATH
+    docker_exec "$APP_CONTAINER_NAME" "npm run build" $APP_PATH
+    docker_exec "$APP_CONTAINER_NAME" "composer install" $APP_PATH
+    docker_exec "$APP_CONTAINER_NAME" "php artisan vendor:publish --all" $APP_PATH
+
+    # Set permissions based on environment
+    if [[ "$APP_ENV" == "dev" ]]; then
+        echo "Setting loose permissions on local environment..."
+        sudo chmod -R 777 ./src
+    elif [[ "$APP_ENV" == "prod" ]]; then
+        echo "Setting stricter permissions on production environment..."
+        sudo chmod -R 750 ./src
+
+        # Optimization steps for production
+        echo "Optimizing application for production..."
+        docker_exec "$APP_CONTAINER_NAME" "composer install --optimize-autoloader --no-dev" $APP_PATH
+        docker_exec "$APP_CONTAINER_NAME" "php artisan config:clear" $APP_PATH
+        docker_exec "$APP_CONTAINER_NAME" "php artisan cache:clear" $APP_PATH
+        docker_exec "$APP_CONTAINER_NAME" "php artisan route:cache" $APP_PATH
+        docker_exec "$APP_CONTAINER_NAME" "php artisan config:cache" $APP_PATH
+        docker_exec "$APP_CONTAINER_NAME" "php artisan view:cache" $APP_PATH
+    fi
+
+    echo "Application setup complete!"
+}
+ 
+function seed {
+    cd $SCRIPT_DIR/../
+    APP_PATH="/var/www/html"
+
+    SEEDERS=(
+        "AdminUserSeeder"
+    )
+
+    echo "Seeding database..."
+    for SEEDER in "${SEEDERS[@]}"; do
+        echo "Running $SEEDER..."
+        docker_exec "$APP_CONTAINER_NAME" "php artisan db:seed --class=$SEEDER" $APP_PATH
+        if [ $? -ne 0 ]; then
+            echo "Error: Failed to run $SEEDER"
+            exit 1
+        fi
+    done
+
+    echo "Database seeding completed successfully!"
+    exit 0
+}
+
+function rebuild_assets {
+    cd $SCRIPT_DIR/../
+    APP_PATH="/var/www/html"
+
+    echo "Rebuilding assets..."
     docker_exec "$APP_CONTAINER_NAME" "npm run build" $APP_PATH
 }
 
-function restart {
+function watch_assets {
     cd $SCRIPT_DIR/../
+    APP_PATH="/var/www/html"
 
-    $DOCKER_CMD restart
+    echo "Starting watch mode for assets..."
+    docker_exec "$APP_CONTAINER_NAME" "npm run watch" $APP_PATH
+    exit 0
+}
 
-    echo "Connecting containers to server network..."
-    connect_to_network $APP_CONTAINER_NAME $EXTERNAL_NETWORK 
-    # build manifest.json
-    docker_exec "$APP_CONTAINER_NAME" "npm install" $APP_PATH
-    docker_exec "$APP_CONTAINER_NAME" "npm run build" $APP_PATH
+function migrate {
+    APP_PATH="/var/www/html"
+    docker_exec "$APP_CONTAINER_NAME" "php artisan migrate" $APP_PATH
+    exit 0
+}
+
+function restart {
+    $DOCKER_CMD down
+    run
 }
 
 function docker_exec {
@@ -104,6 +192,5 @@ function connect_to_network {
         docker network connect "$network_name" "$container_name"
     fi
 }
-
 
 main "$@"
